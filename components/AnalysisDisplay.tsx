@@ -1,6 +1,9 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import type { AnalysisResult, Performer } from '../types';
 import TrendChart from './TrendChart';
+import EditableField from './EditableField';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 
 interface AnalysisDisplayProps {
   analysis: AnalysisResult;
@@ -35,8 +38,61 @@ const PerformerCard: React.FC<{ performer: Performer; type: 'top' | 'bottom' }> 
     );
 };
 
-
 const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ analysis, onReset, reportName }) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editableAnalysis, setEditableAnalysis] = useState(analysis);
+  const reportRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setEditableAnalysis(analysis);
+  }, [analysis]);
+
+  const handleFieldChange = (field: keyof AnalysisResult, value: any) => {
+    setEditableAnalysis(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleListItemChange = (field: 'positive' | 'negative', index: number, value: string) => {
+    const newList = [...editableAnalysis.kpiHighlights[field]];
+    newList[index] = value;
+    setEditableAnalysis(prev => ({
+      ...prev,
+      kpiHighlights: {
+        ...prev.kpiHighlights,
+        [field]: newList
+      }
+    }));
+  };
+  
+    const handleRecommendationChange = (index: number, value: string) => {
+    const newRecommendations = [...editableAnalysis.actionableRecommendations];
+    newRecommendations[index] = value;
+    handleFieldChange('actionableRecommendations', newRecommendations);
+  };
+
+  const handleExportPDF = async () => {
+    if (isEditing) {
+      await setIsEditing(false);
+      // Give the DOM a moment to update before capturing
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    if (reportRef.current) {
+      const canvas = await html2canvas(reportRef.current, {
+        scale: 2, // Higher scale for better quality
+        useCORS: true,
+        backgroundColor: '#f8fafc', // Match the page background
+      });
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'px',
+        format: [canvas.width, canvas.height]
+      });
+      pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+      pdf.save(`RMN-Analysis-${reportName.replace(/\s+/g, '-')}.pdf`);
+    }
+  };
+
   return (
     <div className="animate-fade-in">
       <div className="text-center mb-10">
@@ -45,9 +101,29 @@ const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ analysis, onReset, re
         </h2>
       </div>
 
-      <div className="space-y-8">
+      <div className="mb-8 flex justify-center gap-4">
+        <button
+          onClick={() => setIsEditing(!isEditing)}
+          className="px-6 py-2 text-base font-semibold text-white bg-sky-500 rounded-lg shadow-sm hover:bg-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-2 transition-all duration-200"
+        >
+          {isEditing ? 'Save Changes' : 'Edit Report'}
+        </button>
+        <button
+          onClick={handleExportPDF}
+          className="px-6 py-2 text-base font-semibold text-sky-600 bg-white border border-sky-500 rounded-lg shadow-sm hover:bg-sky-50 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-2 transition-all duration-200"
+        >
+          Export to PDF
+        </button>
+      </div>
+
+      <div className="space-y-8" ref={reportRef}>
         <Section title="Executive Summary" icon={<IconStar />}>
-          <p className="text-slate-700 leading-relaxed">{analysis.executiveSummary}</p>
+          <EditableField
+            isEditing={isEditing}
+            value={editableAnalysis.executiveSummary}
+            onChange={(value) => handleFieldChange('executiveSummary', value)}
+            className="text-slate-700 leading-relaxed"
+          />
         </Section>
 
         <section className="bg-white p-6 rounded-lg shadow-md border border-slate-200">
@@ -61,7 +137,9 @@ const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ analysis, onReset, re
                         <IconThumbsUp /> What Went Well
                     </h4>
                     <ul className="space-y-2 list-disc list-inside text-sm text-slate-600">
-                        {analysis.kpiHighlights.positive.map((item, index) => <li key={index}>{item}</li>)}
+                        {editableAnalysis.kpiHighlights.positive.map((item, index) => (
+                          <EditableField key={index} as="li" isEditing={isEditing} value={item} onChange={(value) => handleListItemChange('positive', index, value)} />
+                        ))}
                     </ul>
                 </div>
                 <div className="bg-red-50 border-l-4 border-red-400 p-4 rounded-r-md">
@@ -69,7 +147,9 @@ const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ analysis, onReset, re
                         <IconThumbsDown /> Areas for Improvement
                     </h4>
                     <ul className="space-y-2 list-disc list-inside text-sm text-slate-600">
-                        {analysis.kpiHighlights.negative.map((item, index) => <li key={index}>{item}</li>)}
+                        {editableAnalysis.kpiHighlights.negative.map((item, index) => (
+                          <EditableField key={index} as="li" isEditing={isEditing} value={item} onChange={(value) => handleListItemChange('negative', index, value)} />
+                        ))}
                     </ul>
                 </div>
             </div>
@@ -100,19 +180,29 @@ const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ analysis, onReset, re
 
 
         <Section title="Benchmark Comparison" icon={<IconChart />}>
-          <p className="text-slate-700 leading-relaxed">{analysis.benchmarkComparison}</p>
+          <EditableField
+            isEditing={isEditing}
+            value={editableAnalysis.benchmarkComparison}
+            onChange={(value) => handleFieldChange('benchmarkComparison', value)}
+            className="text-slate-700 leading-relaxed"
+          />
         </Section>
 
         <Section title="Actionable Recommendations" icon={<IconClipboardCheck />}>
           <ul className="space-y-3 list-disc list-inside text-slate-700">
-            {analysis.actionableRecommendations.map((rec, index) => (
-              <li key={index}>{rec}</li>
+            {editableAnalysis.actionableRecommendations.map((rec, index) => (
+              <EditableField key={index} as="li" isEditing={isEditing} value={rec} onChange={(value) => handleRecommendationChange(index, value)} />
             ))}
           </ul>
         </Section>
 
         <Section title="Petco Marketplace Context" icon={<IconGlobe />}>
-          <p className="text-slate-700 leading-relaxed">{analysis.petcoContextualization}</p>
+          <EditableField
+            isEditing={isEditing}
+            value={editableAnalysis.petcoContextualization}
+            onChange={(value) => handleFieldChange('petcoContextualization', value)}
+            className="text-slate-700 leading-relaxed"
+          />
         </Section>
       </div>
 
@@ -130,7 +220,7 @@ const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ analysis, onReset, re
 
 // --- ICONS ---
 const IconStar = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z" /></svg>;
-const IconSparkles = () => <svg xmlns="http://www.w.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.898 20.51l-.219.684-.219-.684a2.25 2.25 0 00-1.406-1.406l-.684-.219.684-.219a2.25 2.25 0 001.406-1.406l.219-.684.219.684a2.25 2.25 0 001.406 1.406l.684.219-.684.219a2.25 2.25 0 00-1.406 1.406z" /></svg>;
+const IconSparkles = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.898 20.51l-.219.684-.219-.684a2.25 2.25 0 00-1.406-1.406l-.684-.219.684-.219a2.25 2.25 0 001.406-1.406l.219-.684.219.684a2.25 2.25 0 001.406 1.406l.684.219-.684.219a2.25 2.25 0 00-1.406 1.406z" /></svg>;
 const IconThumbsUp = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M6.633 10.5c.806 0 1.533-.446 2.031-1.08a9.041 9.041 0 012.861-2.4c.723-.384 1.35-.956 1.653-1.715a4.498 4.498 0 00.322-1.672V3a.75.75 0 01.75-.75A2.25 2.25 0 0116.5 4.5c0 1.152-.26 2.243-.723 3.218-.266.558.107 1.282.725 1.282h3.126c1.026 0 1.945.694 2.054 1.715.045.422.068.85.068 1.285a11.95 11.95 0 01-2.649 7.521c-.388.482-.987.729-1.605.729H13.48c-.483 0-.964-.078-1.423-.23l-3.114-1.04a4.501 4.501 0 00-1.423-.23H5.904M6.633 10.5l-1.822 1.822a2.25 2.25 0 00-3.183 3.183l1.822-1.822m3.183 0l-1.822 1.822a2.25 2.25 0 003.183 3.183l1.822-1.822" /></svg>;
 const IconThumbsDown = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M7.863 10.5l-1.822 1.822a2.25 2.25 0 00-3.183 3.183l1.822-1.822m3.183 0l-1.822 1.822a2.25 2.25 0 003.183 3.183l1.822-1.822m-5.127-6.248c.806 0 1.533-.446 2.031-1.08a9.041 9.041 0 012.861-2.4c.723-.384 1.35-.956 1.653-1.715a4.498 4.498 0 00.322-1.672V3a.75.75 0 01.75-.75A2.25 2.25 0 0116.5 4.5c0 1.152-.26 2.243-.723 3.218-.266.558.107 1.282.725 1.282h3.126c1.026 0 1.945.694 2.054 1.715.045.422.068.85.068 1.285a11.95 11.95 0 01-2.649 7.521c-.388.482-.987.729-1.605.729H9.332c-.483 0-.964-.078-1.423-.23l-3.114-1.04a4.501 4.501 0 00-1.423-.23H1.5" /></svg>;
 const IconChart = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h12M3.75 3.75h16.5M12 3v13.5m-7.5 0h15" /></svg>;

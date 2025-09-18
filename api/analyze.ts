@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { kv } from '@vercel/kv';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -186,11 +187,6 @@ export default async function handler(
     return res.status(500).json({ error: 'Server configuration error: API_KEY is missing.' });
   }
 
-  if (!process.env.KV_URL) {
-    console.error("Vercel KV environment variables are not set");
-    return res.status(500).json({ error: 'Server configuration error: Vercel KV is not connected.' });
-  }
-
   const { fileContents } = req.body;
 
   if (!Array.isArray(fileContents) || fileContents.length === 0) {
@@ -198,25 +194,37 @@ export default async function handler(
   }
 
   const cacheKey = createHash('sha256').update(JSON.stringify(fileContents)).digest('hex');
+  const isKvAvailable = process.env.KV_URL && process.env.KV_REST_API_TOKEN;
 
-  try {
-    const cachedResult = await kv.get<AnalysisResult>(cacheKey);
-    if (cachedResult) {
-      return res.status(200).json(cachedResult);
+  if (isKvAvailable) {
+    try {
+      const cachedResult = await kv.get<AnalysisResult>(cacheKey);
+      if (cachedResult) {
+        return res.status(200).json(cachedResult);
+      }
+    } catch (error) {
+      console.warn("Could not connect to Vercel KV. Bypassing cache.", error);
     }
-  } catch (error) {
-    console.error("Error accessing cache:", error);
+  } else {
+      console.warn("Vercel KV environment variables not found. Bypassing cache.");
   }
 
   try {
+    console.log("Backend: Starting media data analysis...");
     const result = await analyzeMediaData(fileContents);
+    console.log("Backend: Analysis complete.");
     
-    try {
-      await kv.set(cacheKey, result, { ex: 3600 }); // Cache for 1 hour
-    } catch (error) {
-      console.error("Error saving to cache:", error);
+    if (isKvAvailable) {
+      try {
+        console.log("Backend: Attempting to save to cache...");
+        await kv.set(cacheKey, result, { ex: 3600 }); // Cache for 1 hour
+        console.log("Backend: Successfully saved to cache.");
+      } catch (error) {
+        console.warn("Backend: Could not save to Vercel KV. Bypassing cache.", error);
+      }
     }
 
+    console.log("Backend: Returning successful response.");
     return res.status(200).json(result);
   } catch (error) {
     console.error(error);

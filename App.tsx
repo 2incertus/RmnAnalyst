@@ -23,18 +23,24 @@ const App: React.FC = () => {
   };
 
   const readFileContent = async (file: File): Promise<string> => {
-    if (file.type === 'application/pdf') {
-      const arrayBuffer = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
-      let textContent = '';
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const text = await page.getTextContent();
-        textContent += text.items.map(item => 'str' in item ? item.str : '').join(' ') + '\n';
+    try {
+      if (file.type === 'application/pdf') {
+        const arrayBuffer = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
+        let textContent = '';
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const text = await page.getTextContent();
+          textContent += text.items.map(item => 'str' in item ? item.str : '').join(' ') + '\n';
+        }
+        return textContent;
       }
-      return textContent;
+      return await file.text();
+    } catch (error) {
+      console.error(`Failed to read file ${file.name}:`, error);
+      // Return an empty string or some indicator of failure
+      return "";
     }
-    return file.text();
   };
 
 
@@ -50,20 +56,26 @@ const App: React.FC = () => {
     setAnalysis(null);
 
     try {
+      console.log("Starting analysis...");
       const fileContents = await Promise.all(files.map(readFileContent));
+      console.log("File contents read, sending to API...");
       
       const response = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fileContents }),
       });
+      console.log("API response received:", response.status);
 
       if (!response.ok) {
-        const errorData = await response.json();
+        const errorText = await response.text();
+        console.error("API error response:", errorText);
+        const errorData = JSON.parse(errorText);
         throw new Error(errorData.error || `Request failed with status ${response.status}`);
       }
 
       const result = await response.json();
+      console.log("Analysis successful, setting results.");
       setAnalysis(result);
       setPageState(PageState.RESULTS);
     } catch (err) {
