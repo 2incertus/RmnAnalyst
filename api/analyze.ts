@@ -36,13 +36,7 @@ export interface AnalysisResult {
 }
 // --- End of copied types ---
 
-const API_KEY = process.env.API_KEY;
-
-if (!API_KEY) {
-  throw new Error("API_KEY environment variable is not set");
-}
-
-const ai = new GoogleGenAI({ apiKey: API_KEY });
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
 
 const analysisSchema = {
   type: Type.OBJECT,
@@ -185,6 +179,16 @@ export default async function handler(
 ) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method Not Allowed' });
+  }
+
+  if (!process.env.API_KEY) {
+    console.error("API_KEY environment variable is not set");
+    return res.status(500).json({ error: 'Server configuration error: API_KEY is missing.' });
+  }
+
+  if (!process.env.KV_URL) {
+    console.error("Vercel KV environment variables are not set");
+    return res.status(500).json({ error: 'Server configuration error: Vercel KV is not connected.' });
   }
 
   const { fileContents } = req.body;
